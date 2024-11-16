@@ -4,12 +4,13 @@ random.seed()
 
 class SudokuGA:
     
-    def __init__(self, puzzle, population_size=1000, mutation_rate=0.05, max_generations=10000, mutation_rate_factor=1.5, stagnation_threshold=50):
+    def __init__(self, puzzle, population_size=1000, mutation_rate=0.05, max_generations=10000, mutation_rate_factor=1.5, stagnation_threshold=50, reset_threshold=100):
         self.population_size = population_size
         self.mutation_rate = mutation_rate
         self.max_generations = max_generations
         self.mutation_rate_factor = mutation_rate_factor
         self.stagnation_threshold = stagnation_threshold
+        self.reset_threshold = reset_threshold
 
         self.puzzle = self.fill_obvious_cells(puzzle)
         self.is_solveable = self.check_solveable()
@@ -81,10 +82,9 @@ class SudokuGA:
     def calculate_fitness(self, chromosome):
         fitness_score = 0
         for i in range(9):
-            row = chromosome[i, :]
-            col = chromosome[:, i]
-            square = chromosome[(i//3)*3:(i//3)*3+3, (i%3)*3:(i%3)*3+3].flatten()
-            fitness_score += (9 - len(np.unique(row))) + (9 - len(np.unique(col))) + (9 - len(np.unique(square)))
+          col = chromosome[:, i]
+          square = chromosome[(i//3)*3:(i//3)*3+3, (i%3)*3:(i%3)*3+3].flatten()
+          fitness_score += (9 - len(np.unique(col))) + (9 - len(np.unique(square)))
         return fitness_score
     
     def selection(self, fitness_scores):
@@ -125,13 +125,49 @@ class SudokuGA:
       
       return mutated_chromosome      
     
+    def check_can_be_solved_by_swap(self, chromosome):
+      wrong_columns = []
+      
+      # Identify columns that contain duplicates
+      for i in range(9):
+          col = chromosome[:, i]
+          if len(col) != len(np.unique(col)):
+              wrong_columns.append(i)
+
+      # If there are not exactly 2 wrong columns, return None (no solution by simple swap)
+      if len(wrong_columns) != 2:
+          return None
+
+      # Get the indices of the two wrong columns
+      col1, col2 = wrong_columns
+
+      # Find two rows with non-fixed, incorrect cells in these columns
+      for row in range(9):
+          # Check if the two cells in the identified columns are not fixed
+          if not self.fixed_cells[row, col1] and not self.fixed_cells[row, col2]:
+              # Check if swapping these two cells could potentially solve the problem
+              if chromosome[row, col1] != chromosome[row, col2]:  # Only swap if values are different
+                  # Create a copy of the chromosome to test the swap
+                  test_chromosome = chromosome.copy()
+                  test_chromosome[row, col1], test_chromosome[row, col2] = test_chromosome[row, col2], test_chromosome[row, col1]
+                  
+                  # Check if the swap results in a fitness score of 0
+                  if self.calculate_fitness(test_chromosome) == 0:
+                      print("Swapped cells at", (row, col1), "and", (row, col2), "to find a solution.")
+                      return test_chromosome
+
+      return None
+
     def solve(self):
       if not self.is_solveable:
         print("The puzzle is not solveable.")
         return
 
       stagnation_counter = 0
+      reset_counter = 0
       mutation_rate = self.mutation_rate
+
+      
 
       for generation in range(self.max_generations):
         fitness_scores = [self.calculate_fitness(chromosome) for chromosome in self.population]
@@ -155,33 +191,34 @@ class SudokuGA:
             self.population[i] = self.mutate(self.population[i])
         
         min_fitness = min(fitness_scores)
-        
-        if self.best_fitness < min(fitness_scores):
+      
+        if(min_fitness == 2):
+          solution = self.check_can_be_solved_by_swap(self.population[fitness_scores.index(min_fitness)])
+          if solution is not None:
+            print("Solution found in generation", generation)
+            print(solution)
+            return True
+
+        if self.best_fitness <= min_fitness:
           stagnation_counter += 1
+          reset_counter += 1
         else:
           stagnation_counter = 0
+          reset_counter = 0
           self.best_fitness = min_fitness
 
         if stagnation_counter >= self.stagnation_threshold:
           mutation_rate *= self.mutation_rate_factor
           stagnation_counter = 0
+
+        if reset_counter >= self.reset_threshold:
+          print("Resetting population.")
+          self.population = self.generate_population()
+          reset_counter = 0
+          stagnation_counter = 0
+          mutation_rate = self.mutation_rate
         
         print("Generation", generation, "Fitness:", min_fitness)
 
       print("Solution not found.")
       return False
-    
-# init_puzzle = np.array([
-#   [8, 7, 0, 0, 0, 6, 5, 9, 0], 
-#   [5, 0, 3, 0, 8, 2, 7, 6, 0], 
-#   [2, 6, 0, 1, 7, 0, 0, 0, 8], 
-#   [0, 9, 6, 0, 0, 8, 0, 0, 0], 
-#   [0, 3, 0, 0, 0, 9, 2, 8, 4], 
-#   [0, 0, 2, 7, 0, 4, 6, 0, 0], 
-#   [0, 0, 4, 0, 5, 0, 0, 1, 6], 
-#   [6, 1, 7, 0, 0, 0, 0, 0, 0], 
-#   [0, 0, 0, 2, 6, 0, 0, 0, 3]
-# ])
-
-# ga = SudokuGA(init_puzzle)
-# ga.solve()
